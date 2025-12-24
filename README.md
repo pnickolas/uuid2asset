@@ -8,6 +8,10 @@ A tool made to decrypt Cocos Creator HTML5 asset UUIDs back to their original fo
 
 ```node u2a.js https://example.com/v1/ config.XXXX.json```
 
+Inside the .js file, there are 2 settings you can change: `CONCURRENT_DOWNLOADS` and `DEFAULT_FILE_EXTENSIONS`. 
+
+The default value for concurrent downloads is 400. Increasing this value will download the files faster but at the cost of eating up more bandwidth and causing the server to give you a rate limit. `DEFAULT_FILE_EXTENSIONS` contains a list of files that the Cocos engine can process/recognize. The default list will scan the final file name for all available extensions. This will make the tool have a guaranteed 100% dump but a longer download time. If you are desperate, you can remove some extensions from that list, but only do this when you are sure that the game only contains assets with that new range of extensions. Otherwise, you will end up with an incomplete dump.
+
 ## Requirements:
 
 - node-fetch
