@@ -1,26 +1,19 @@
 # UUID2Asset
 A tool made to decrypt Cocos Creator HTML5 asset UUIDs back to their original form and download them.
 
-This tool has 2 modes: 
-
-- Automatic: This mode downloads the external files (index.html, CSS, engine files, etc.) for you, saving you a little time when archiving the game. However, be aware that this only works in debug builds. Using this mode won't require pre-downloaded bundle config files.
-
-- Manual: Only downloads the bundle assets and nothing else.
+> [!NOTE]  
+> Automatic mode has been removed because it only worked in debug HTML5 builds (rarely seen) and was somewhat unstable. If you still want to use it, check out the "auto" branch.
 
 ## How to use?
 
-```node u2a.js https://example.com/v1/index.html``` (AUTOMATIC, DEBUG BUILDS ONLY!)
-
-```node u2a.js https://example.com/v1/ config.XXXX.json``` (MANUAL)
+```node u2a.js https://example.com/v1/ config.XXXX.json```
 
 ## Requirements:
 
 - node-fetch
 - jszip
-- jsdom
-
-
-## How to get a bundle configuration file? (FOR MANUAL MODE)
+  
+## How to get a bundle configuration file?
 
 On the game URL, type `view-source:` *before* the HTTP indentifier, this will open the page's source code.
 
@@ -33,7 +26,7 @@ You will see an hyperlink between the `src=` attribute, click it and it will ope
 ![image](https://github.com/user-attachments/assets/d99e719d-7120-459f-91fb-d37c35d230ef)
 
 > [!NOTE]  
-> In release builds, the settings file won't contain the bundle hashes. You can download them via the Network tab while booting the game.
+> In some builds, the settings file won't contain the bundle hashes. You can download them via the Network tab while booting the game.
 
 See the `bundleVers` key? well that's what we are searching for, copy the name of the bundle and the hash of the bundle you want to archive and put these in this link:
 
