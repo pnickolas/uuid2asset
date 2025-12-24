@@ -1,8 +1,6 @@
 import fs from 'fs';
 import fetch from 'node-fetch';
-import path from 'path';
 import JSZip from 'jszip';
-import { JSDOM } from 'jsdom';
 
 const DEFAULT_FILE_EXTENSIONS = ['.json', '.ttf', '.bin', '.png', '.jpg', '.bmp', '.jpeg', '.gif', '.ico', '.tiff', '.webp', '.image', '.pvr', '.pkm', '.mp3', '.ogg', '.wav', '.m4a'];
 const CONCURRENT_DOWNLOADS = 400;
@@ -226,7 +224,7 @@ async function processBundleData(bundleData, serverName, activeExtensions) {
     await processBase('native');
 
     if (foundFiles === 0) {
-        console.log('\nNo files were found, this probably happened because the bundle config uses a new way to define the file names.');
+        console.log('\nNo files were found! This probably happened because the asset bundle structure is not compatible with the tool. Please create an issue on the GitHub repo so we can check out your game and support it!');
         return;
     }
 
@@ -237,170 +235,29 @@ async function processBundleData(bundleData, serverName, activeExtensions) {
     console.log(`Total files included: ${foundFiles}`);
 }
 
-async function AExtractJS(jsContent) {
-    const settingsMatch = jsContent.match(/window\._CCSettings\s*=\s*({[\s\S]*?});/);
-    if (settingsMatch) {
-        try {
-            const window = {};
-            eval(`window._CCSettings = ${settingsMatch[1]}`);
-            return window._CCSettings;
-        } catch (error) {
-            console.error('Failed to parse settings:', error);
-            return null;
-        }
-    }
-    
-    try {
-        const settings = JSON.parse(jsContent);
-        if (settings.jsList) {
-            return settings;
-        }
-    } catch (e) {
-    }
-    
-    return null;
-}
-
-async function automaticDownload(htmlUrl) {
-    const baseUrl = htmlUrl.substring(0, htmlUrl.lastIndexOf('/') + 1);
-    const mainFiles = [{ url: htmlUrl, path: 'index.html' }];
-    const externalZip = new JSZip();
-    const bundleConfigs = [];
-
-    const html = await (await fetch(htmlUrl)).text();
-    const dom = new JSDOM(html);
-    const document = dom.window.document;
-
-    const addFileToQueue = (path) => {
-        const shouldPrefixSrc = path.startsWith('assets/') && !path.startsWith('src/');
-        const normalizedPath = shouldPrefixSrc ? `src/${path}` : path;
-        const fullUrl = normalizedPath.startsWith('http') 
-            ? normalizedPath 
-            : new URL(normalizedPath, baseUrl).href;
-        
-        if (!mainFiles.some(f => f.path === normalizedPath)) {
-            mainFiles.push({ url: fullUrl, path: normalizedPath });
-        }
-    };
-
-    document.querySelectorAll('link[rel="stylesheet"], link[rel="icon"], script[src]').forEach(el => {
-        const url = el.getAttribute('href') || el.getAttribute('src');
-        if (url) addFileToQueue(url);
-    });
-
-    const processJsList = (settings) => {
-        if (settings?.jsList) {
-            settings.jsList.forEach(path => addFileToQueue(path));
-        }
-    };
-
-    Array.from(document.getElementsByTagName('script')).forEach(script => {
-        if (!script.src) {
-            if (script.textContent.includes('_CCSettings')) {
-                const settingsFromScript = AExtractJS(script.textContent);
-                processJsList(settingsFromScript);
-            }
-            
-            const scriptContent = script.textContent;
-            const cocos2dMatch = scriptContent.match(/['"]cocos2d-js(?:-min)?\.([a-zA-Z0-9]+)\.js['"]/);
-            if (cocos2dMatch) {
-                const fileName = cocos2dMatch[0].replace(/['"]/g, '');
-                addFileToQueue(fileName);
-            }
-            
-            const loadScriptMatches = scriptContent.match(/loadScript\([^)]+\)/g);
-            if (loadScriptMatches) {
-                loadScriptMatches.forEach(match => {
-                    const fileMatch = match.match(/['"]([^'"]+)['"]/);
-                    if (fileMatch) {
-                        addFileToQueue(fileMatch[1]);
-                    }
-                });
-            }
-        }
-    });
-
-    async function processBundleConfig(bundleName, hash) {
-        const configUrl = `${baseUrl}assets/${bundleName}/config.${hash}.json`;
-        const mainJsUrl = `${baseUrl}assets/${bundleName}/index.${hash}.js`;
-        
-        const configData = await downloadFile(configUrl);
-        if (!configData) return null;
-
-        externalZip.file(`assets/${bundleName}/config.${hash}.json`, configData);
-        
-        const mainJsData = await downloadFile(mainJsUrl);
-        if (mainJsData) {
-            externalZip.file(`assets/${bundleName}/index.${hash}.js`, mainJsData);
-            const settingsFromJs = await AExtractJS(mainJsData.toString());
-            processJsList(settingsFromJs);
-        }
-        
-        return JSON.parse(configData.toString());
-    }
-
-    for (const file of mainFiles) {
-        const data = await downloadFile(file.url);
-        if (!data) continue;
-
-        externalZip.file(file.path, data);
-        
-        if (file.path.endsWith('.js')) {
-            const fileSettings = await AExtractJS(data.toString());
-            processJsList(fileSettings);
-            
-            if (fileSettings?.bundleVers) {
-                for (const [bundle, hash] of Object.entries(fileSettings.bundleVers)) {
-                    const bundleConfig = await processBundleConfig(bundle, hash);
-                    if (bundleConfig) {
-                        bundleConfigs.push({ name: bundle, hash, config: bundleConfig });
-                    }
-                }
-            }
-        }
-    }
-
-    const externalZipBuffer = await externalZip.generateAsync({ type: 'nodebuffer' });
-    fs.writeFileSync('external-files.zip', externalZipBuffer);
-    
-    if (bundleConfigs.length > 0) {
-        for (const bundle of bundleConfigs) {
-            await processBundleData(bundle.config, baseUrl, DEFAULT_FILE_EXTENSIONS);
-        }
-    }
-
-    console.log(`Download completed: ${mainFiles.length} external files, ${bundleConfigs.length} bundles`);
-}
-
 async function main() {
-    if (process.argv.length < 3) {
-        console.log('Usage: node u2a.js <game-index-html-url>');
-        console.log('   or: node u2a.js <server-name> <json-file-name> [<json-file-name>...]');
-        console.log('Examples:');
-        console.log('  node u2a.js https://example.com/game/v1/index.html (AUTOMATIC, DEBUG ONLY!)');
-        console.log('  node u2a.js https://example.com/game/v1/ config.XXXX.json (MANUAL)');
+    if (process.argv.length < 4) {
+        console.log('Usage: node u2a.js <server-name> <json-file-name> [<json-file-name>...]');
+        console.log('Example:');
+        console.log('  node u2a.js https://example.com/game/v1/ config.XXXX.json');
         process.exit(1);
     }
 
     console.log('\nUUID2Asset Started');
 
     try {
-        if (process.argv.length === 3 && process.argv[2].includes('.html')) {
-            await automaticDownload(process.argv[2]);
-        } else {
-            const args = {
-                serverName: process.argv[2],
-                bundles: process.argv.slice(3).map(file => ({ file }))
-            };
+        const args = {
+            serverName: process.argv[2],
+            bundles: process.argv.slice(3).map(file => ({ file }))
+        };
 
-            console.log(`\nTarget Game:`, args.serverName);
-            console.log(`\nBundles:`, args.bundles.map(b => b.file).join(', '));
+        console.log(`\nTarget Game:`, args.serverName);
+        console.log(`\nBundles:`, args.bundles.map(b => b.file).join(', '));
 
-            for (const bundle of args.bundles) {
-                const jsonContent = fs.readFileSync(bundle.file, 'utf8');
-                const bundleData = JSON.parse(jsonContent);
-                await processBundleData(bundleData, args.serverName, DEFAULT_FILE_EXTENSIONS);
-            }
+        for (const bundle of args.bundles) {
+            const jsonContent = fs.readFileSync(bundle.file, 'utf8');
+            const bundleData = JSON.parse(jsonContent);
+            await processBundleData(bundleData, args.serverName, DEFAULT_FILE_EXTENSIONS);
         }
     } catch (error) {
         console.error('Error:', error.message);
